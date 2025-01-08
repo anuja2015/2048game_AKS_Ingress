@@ -5,27 +5,22 @@ resource "azurerm_resource_group" "aks" {
   location = var.location
 }
 
-resource "azurerm_log_analytics_workspace" "main" {
-  name                = var.log_analytics_workspace_name
-  location            = azurerm_resource_group.aks.location
+resource "azurerm_virtual_network" "vnet" {
+  name  = var.vnet_name
   resource_group_name = azurerm_resource_group.aks.name
-  sku                 = "PerGB2018"
-  retention_in_days   = var.log_retention_days
+  location = azurerm_resource_group.aks.location
+  address_space = var.address_space
+  
 }
 
-resource "azurerm_log_analytics_solution" "main" {
-  solution_name         = "Containers"
-  workspace_resource_id = azurerm_log_analytics_workspace.main.id
-  workspace_name        = azurerm_log_analytics_workspace.main.name
-  location              = azurerm_resource_group.aks.location
-  resource_group_name   = azurerm_resource_group.aks.name
-
-  plan {
-    publisher = "Microsoft"
-    product   = "OMSGallery/Containers"
-  }
+resource "azurerm_subnet" "subnet01" {
+  name = var.subnet_name
+  resource_group_name = azurerm_resource_group.aks.name
+  virtual_network_name = azurerm_virtual_network.vnet.name
+  address_prefixes = var.address_prefixes
+  service_endpoints = var.service_endpoints
+  
 }
-
 resource "azurerm_kubernetes_cluster" "aks" {
   name                = "${var.prefix}-k8s"
   location            = azurerm_resource_group.aks.location
@@ -36,16 +31,21 @@ resource "azurerm_kubernetes_cluster" "aks" {
     name       = "default"
     node_count = var.node_count
     vm_size    = var.vm_size
+    # AKS Default Subnet ID
+    vnet_subnet_id        = azurerm_subnet.subnet01.id
+
   }
 
   identity {
     type = "SystemAssigned"
   }
-
-  oms_agent {
-    log_analytics_workspace_id      = azurerm_log_analytics_workspace.main.id
-    msi_auth_for_monitoring_enabled = true
+  network_profile {
+    network_plugin = "azure"
+    load_balancer_sku = "standard"
   }
+  
+  oidc_issuer_enabled       = true
+  workload_identity_enabled = true
 }
 output "kubeconfig" {
   value     = azurerm_kubernetes_cluster.aks.kube_admin_config_raw
